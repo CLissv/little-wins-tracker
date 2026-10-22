@@ -45,6 +45,7 @@
       <button class="nav" data-page="personal"><span class="ico">♡</span> Personal savings</button>
       <button class="nav" data-page="rainy"><span class="ico">☂</span> Rainy day fund</button>
       <button class="nav" data-page="goals"><span class="ico">✧</span> Other goals</button>
+      <button class="nav" data-page="investments"><span class="ico">↗</span> Moomoo investments</button>
       <div class="nav-label">PLAN AHEAD</div>
       <button class="nav" data-page="budget"><span class="ico">▤</span> Monthly budget</button>
       <button class="nav" data-page="settings"><span class="ico">⚙</span> Settings & data</button>
@@ -122,6 +123,33 @@
       <section id="goals" class="page hidden">
         <div class="page-head"><div><h2>Other goals ✧</h2><p>Make room for other plans, big and small.</p></div><button class="btn primary" onclick="addGoal()">＋ New goal</button></div>
         <div class="card"><div id="otherGoals" class="goal-list"></div></div>
+      </section>
+
+      <section id="investments" class="page hidden">
+        <div class="page-head"><div><h2>Moomoo investments ↗</h2><p>A separate snapshot of your investments and uninvested cash.</p></div></div>
+        <div class="notice">This is a manual monthly snapshot only. It does not connect to Moomoo or update live. These amounts are kept separate from your spendable bank cash and are not added to your Little Wins cash balance.</div>
+        <div class="grid stats">
+          <div class="card"><div class="stat-top">Total Moomoo account value <span class="stat-icon">📈</span></div><div class="stat-value green" id="mooTotal">$0.00</div><div class="stat-sub">Investments + uninvested cash</div></div>
+          <div class="card"><div class="stat-top">Investments <span class="stat-icon">📊</span></div><div class="stat-value" id="mooInvestedDisplay">$0.00</div><div class="stat-sub">Current value of holdings</div></div>
+          <div class="card"><div class="stat-top">Uninvested cash <span class="stat-icon">💵</span></div><div class="stat-value" id="mooCashDisplay">$0.00</div><div class="stat-sub">Cash held inside Moomoo</div></div>
+          <div class="card"><div class="stat-top">Last snapshot <span class="stat-icon">🗓</span></div><div class="stat-value" id="mooLastDate" style="font-size:18px">Not saved yet</div><div class="stat-sub">Update monthly when convenient</div></div>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <h3 class="section-title">Update this month's account value</h3>
+          <p class="section-sub">Open Moomoo and enter the current values shown in your account. Use the same currency throughout; enter the SGD-equivalent amounts if your holdings are displayed in another currency.</p>
+          <div class="form-grid">
+            <div class="field"><label>Investment holdings value (S$)</label><input id="mooInvested" type="number" min="0" step=".01" placeholder="0.00"></div>
+            <div class="field"><label>Uninvested cash in Moomoo (S$)</label><input id="mooCash" type="number" min="0" step=".01" placeholder="0.00"></div>
+            <div class="field"><label>Snapshot month</label><input id="mooMonth" type="month"></div>
+          </div>
+          <div class="form-actions"><button class="btn primary" onclick="saveMoomooSnapshot()">Save monthly snapshot</button></div>
+          <p class="section-sub" style="margin-top:10px">Tip: use the account's total asset value as a cross-check. Do not add the total asset value on top of the two amounts above; the total is calculated from those two fields.</p>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <h3 class="section-title">Monthly history</h3>
+          <p class="section-sub">Each saved month is a snapshot, not new income. Changes can reflect deposits, withdrawals, market movements, fees or currency changes.</p>
+          <div id="mooHistory"><div class="empty">No monthly snapshots saved yet.</div></div>
+        </div>
       </section>
 
       <section id="budget" class="page hidden">
@@ -208,11 +236,12 @@ const defaults={
  bto:{target:20000,monthly:1200,date:'2027-12-31',label:'5-room BTO preparation'},
  dailyBudget:450, personal:{target:1000,monthly:100}, rainy:{target:3000,monthly:500},
  grossSalary:4000,cpfRate:20,otherDeductions:0,budgetIncome:3200,allocations:{'Daily expenses':450,'Trip':500,'BTO':1200,'Rainy day fund':500,'Personal savings':100,'Other goals':100,'Flexible buffer':350},
+ moomoo:{investedValue:0,cashValue:0,lastMonth:'',history:[]},
  goals:[{name:'Anniversary / dates',target:500,monthly:50,pocket:'Other goals'},{name:'Shopping wishlist',target:300,monthly:30,pocket:'Other goals'}]
 };
 let data;
 try{data=JSON.parse(localStorage.getItem('littleWinsData'))||structuredClone(defaults)}catch(e){data=JSON.parse(JSON.stringify(defaults))}
-function mergeDefaults(d){return {...JSON.parse(JSON.stringify(defaults)),...d,trip:{...defaults.trip,...d.trip},bto:{...defaults.bto,...d.bto},personal:{...defaults.personal,...d.personal},rainy:{...defaults.rainy,...d.rainy},allocations:{...defaults.allocations,...d.allocations},goals:d.goals||defaults.goals,transactions:d.transactions||[]}}
+function mergeDefaults(d){return {...JSON.parse(JSON.stringify(defaults)),...d,trip:{...defaults.trip,...d.trip},bto:{...defaults.bto,...d.bto},personal:{...defaults.personal,...d.personal},rainy:{...defaults.rainy,...d.rainy},moomoo:{...defaults.moomoo,...d.moomoo,history:d.moomoo?.history||[]},allocations:{...defaults.allocations,...d.allocations},goals:d.goals||defaults.goals,transactions:d.transactions||[]}}
 data=mergeDefaults(data);
 const $=id=>document.getElementById(id);
 const money=n=>new Intl.NumberFormat('en-SG',{style:'currency',currency:'SGD'}).format(Number(n)||0);
@@ -255,7 +284,30 @@ $('grossSalary').value=data.grossSalary??4000;$('cpfRate').value=data.cpfRate??2
 $('budgetRows').innerHTML=Object.entries(data.allocations).map(([k,v])=>`<div class="budget-row"><span>${esc(k)}</span><input type="number" min="0" step=".01" data-alloc="${esc(k)}" value="${Number(v)}" aria-label="${esc(k)} amount"><span>${money(v)}</span></div>`).join('');const allocated=Object.values(data.allocations).reduce((s,v)=>s+Number(v),0);const payNet=Math.max(0,(Number(data.grossSalary)||4000)*(1-(Number(data.cpfRate)||0)/100)-(Number(data.otherDeductions)||0));$('budgetIncomeTotal').textContent=money(payNet);$('budgetAllocated').textContent=money(allocated);$('budgetUnallocated').textContent=money(payNet-allocated);$('budgetUnallocated').style.color=payNet-allocated<0?'var(--red)':'var(--green)';
 const chartColors=['#d96ba5','#7776c8','#56a68a','#e4a354','#91a9d9','#b5a1c9','#d78b83','#7fa9b4'];const entries=Object.entries(data.allocations);const totalA=entries.reduce((s,[k,v])=>s+Math.max(0,Number(v)||0),0);let cursor=0;const segments=entries.map(([k,v],i)=>{const start=cursor;cursor+=totalA>0?Math.max(0,Number(v)||0)/totalA*100:0;return `${chartColors[i%chartColors.length]} ${start}% ${cursor}%`}).join(',');$('allocationChart').innerHTML=`<div style="height:18px;border-radius:99px;overflow:hidden;background:#f0edf5;margin:14px 0 18px;display:flex">${entries.map(([k,v],i)=>`<div title="${esc(k)}: ${money(v)}" style="height:100%;width:${totalA>0?Math.max(0,Number(v)||0)/totalA*100:0}%;background:${chartColors[i%chartColors.length]}"></div>`).join('')}</div>`+entries.map(([k,v],i)=>`<div class="barrow"><div class="barlabels"><span><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:${chartColors[i%chartColors.length]};margin-right:7px"></span>${esc(k)}</span><span>${money(v)} · ${payNet>0?Math.round(Number(v)/payNet*100):0}%</span></div>${progressHtml(Math.max(0,Number(v)||0),Math.max(1,payNet))}</div>`).join('');refreshPayPreview();$('startingBalance').value=data.starting;
 $('tripTable').innerHTML=tableHtml(tx.filter(t=>t.category==='Trip'));$('btoTable').innerHTML=tableHtml(tx.filter(t=>t.category==='BTO'));$('dailyTable').innerHTML=tableHtml(tx.filter(t=>t.category==='Daily expenses'));$('personalTable').innerHTML=tableHtml(tx.filter(t=>t.category==='Personal savings'));$('rainyTable').innerHTML=tableHtml(tx.filter(t=>t.category==='Rainy day fund'));
+renderMoomoo();
 }
+function renderMoomoo(){
+ const m=data.moomoo||{investedValue:0,cashValue:0,lastMonth:'',history:[]};
+ const invested=Math.max(0,Number(m.investedValue)||0),cash=Math.max(0,Number(m.cashValue)||0);
+ $('mooTotal').textContent=money(invested+cash);
+ $('mooInvestedDisplay').textContent=money(invested);
+ $('mooCashDisplay').textContent=money(cash);
+ $('mooLastDate').textContent=m.lastMonth?new Date(m.lastMonth+'-02T12:00:00').toLocaleDateString('en-SG',{month:'short',year:'numeric'}):'Not saved yet';
+ if($('mooInvested'))$('mooInvested').value=invested;
+ if($('mooCash'))$('mooCash').value=cash;
+ if($('mooMonth'))$('mooMonth').value=m.lastMonth||monthNow();
+ const history=[...(m.history||[])].sort((a,b)=>b.month.localeCompare(a.month));
+ $('mooHistory').innerHTML=history.length?`<div class="table-wrap"><table><thead><tr><th>Month</th><th>Investments</th><th>Uninvested cash</th><th>Total account value</th></tr></thead><tbody>${history.map(h=>`<tr><td>${esc(new Date(h.month+'-02T12:00:00').toLocaleDateString('en-SG',{month:'long',year:'numeric'}))}</td><td>${money(h.investedValue)}</td><td>${money(h.cashValue)}</td><td class="amount">${money(Number(h.investedValue)+Number(h.cashValue))}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">No monthly snapshots saved yet. Add your first snapshot above ♡</div>';
+}
+window.saveMoomooSnapshot=()=>{
+ const invested=Math.max(0,Number($('mooInvested').value)||0),cash=Math.max(0,Number($('mooCash').value)||0),month=$('mooMonth').value||monthNow();
+ if(!data.moomoo)data.moomoo={investedValue:0,cashValue:0,lastMonth:'',history:[]};
+ data.moomoo.investedValue=invested;data.moomoo.cashValue=cash;data.moomoo.lastMonth=month;
+ const snap={month,investedValue:invested,cashValue:cash,totalValue:invested+cash};
+ const i=data.moomoo.history.findIndex(h=>h.month===month);
+ if(i>=0)data.moomoo.history[i]=snap;else data.moomoo.history.push(snap);
+ save();toast('Moomoo snapshot saved ♡');
+};
 function filteredTransactions(){const q=($('searchTx')?.value||'').toLowerCase(),typ=$('filterType')?.value||'all';return data.transactions.filter(t=>(typ==='all'||t.type===typ)&&(!q||[t.description,t.category,t.notes].join(' ').toLowerCase().includes(q)))}
 function showPage(p){document.querySelectorAll('.page').forEach(x=>x.classList.toggle('hidden',x.id!==p));document.querySelectorAll('.nav').forEach(x=>x.classList.toggle('active',x.dataset.page===p));window.scrollTo({top:0,behavior:'smooth'})}
 document.querySelectorAll('.nav').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.page)));
